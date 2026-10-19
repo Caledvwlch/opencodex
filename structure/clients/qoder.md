@@ -7,17 +7,19 @@ Qoder follows the shared [client-integration ownership contract](integrations.md
 Qoder IDE / qodercli uses JSON at `settings.json` under `QODER_CONFIG_DIR`, default `~/.qoder`;
 `qoderHomeDir` resolves that directory once for export, writing and detection, and refuses a
 relative override. The Qoder exporter in
-`src/clients/config-export.ts` writes `providers.opencodex` and one
-`modelConfigs.customModels` entry per model. Array ownership selects both `provider` and
-`model`, preserving same-named models belonging to other providers. Apply, refresh and disable
-use the existing recorded-fragment writer; restore uses its snapshots. Model IDs that cannot
-be represented by the shared selector grammar refuse managed contribution construction.
-Status reads report only Qoder as `unsafe` with `unresolvable-path`, retaining its resolved
-path, installation state, matching ownership metadata and retention information. Collection
-and single-client reads remain available; preview and mutation still refuse those contributions.
-Unexpected builder errors propagate rather than being classified as a selector refusal.
-
-> Decision record: [ADR-7512](../decisions/ADR-7512-qoder-selector-status.md)
+`src/clients/config-export/qoder.ts` writes only `providers.opencodex`, with each model's
+`displayName` and `contextWindow` in its `models` array. It does not duplicate those keys in
+`modelConfigs.customModels`: Qoder rejects the provider when the legacy catalog already
+contains its keys. Apply, refresh and disable use the existing recorded-fragment writer;
+restore uses its snapshots. On refresh, older ownership records remove their previously
+owned custom-model rows before merging the provider-only contribution. Foreign rows remain
+untouched, and edits to previously owned rows remain conflicts. The legacy selector template
+in `src/integrations/mutation-plan.ts` stays available for previewing that removal.
+Because the provider catalog needs no array selector, model IDs containing `,` or `]` no
+longer make Qoder's contribution unaddressable. The shared reader's typed
+`UnrepresentableSelectorError` status guard from
+[ADR-7512](../decisions/ADR-7512-qoder-selector-status.md) remains the contract for any
+generated contribution that cannot name its owned element.
 The default model is the first normalized model; an empty catalog omits the default.
 Input limits use authoritative context metadata or Qoder's requested 128000 fallback.
 Exports reject non-loopback placeholder use; the writer's existing admission gate protects

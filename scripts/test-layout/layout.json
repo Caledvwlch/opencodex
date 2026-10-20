@@ -66,6 +66,7 @@
     "server-combo-plan-model-refusal.test.ts": "server",
     "codex-main-token-invalidated.test.ts": "codex-integration",
     "codex-main-grant-refusal.test.ts": "codex-integration",
+    "codex-auth-headless-accounts.test.ts": "codex-integration",
     "responses-alternate-main-cancellation.test.ts": "responses",
     "codex-shim-path-readiness.test.ts": "codex-integration",
     "codex-shim-fnm.test.ts": "codex-integration",

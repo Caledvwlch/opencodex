@@ -28,7 +28,7 @@ import type { OAuthAccountHealth, OAuthHealthLabel } from "../../oauth/health";
 import { isSelectableCodexPoolAccount } from "../account-id";
 import type { AdmissionLease } from "../../lib/admission";
 import { tryAcquireNativeMainProfileClaim } from "../native-main-admission";
-import { withNativeMainCredentialClaim, isNativeMainClaimUnavailable } from "./http";
+import { withNativeMainCredentialClaim, isNativeMainClaimUnavailable, isNativeMainObservationUnavailable } from "./http";
 import { fetchMainAccountInfoAttempt, EMPTY_MAIN_ACCOUNT_INFO, mainResetCreditsForCurrentIdentity } from "./main-account-probe";
 import { fetchPoolAccountQuota, PoolQuotaProbeBusyError, POOL_QUOTA_REFRESH_CONCURRENCY } from "./pool-quota-probe";
 import type { PoolQuotaResult } from "./pool-quota-probe";
@@ -442,7 +442,7 @@ export async function listCodexAuthAccountsSnapshot(
   try {
     return await withNativeMainCredentialClaim(async () => projectSnapshot(isMainAccountRefreshGrantRejected()));
   } catch (error) {
-    if (isNativeMainClaimUnavailable(error)) return projectSnapshot();
+    if (isNativeMainObservationUnavailable(error)) return projectSnapshot();
     throw error;
   } finally {
     projectionLease.release();

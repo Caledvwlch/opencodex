@@ -7,6 +7,12 @@ export function isNativeMainClaimUnavailable(error: unknown): error is NativePro
     && (error.code === "NATIVE_MAIN_CLAIM_BUSY" || error.code === "NATIVE_MAIN_CLAIM_UNAVAILABLE");
 }
 
+/** Missing native homes leave reads unobserved; credential operations still require their claim. */
+export function isNativeMainObservationUnavailable(error: unknown): error is NativeProfileError {
+  return error instanceof NativeProfileError
+    && (error.code === "CODEX_HOME_UNAVAILABLE" || isNativeMainClaimUnavailable(error));
+}
+
 export function withNativeMainCredentialClaim<T>(operation: () => Promise<T>): Promise<T> {
   return withNativeMainSharedClaim(resolveNativeProfileContext(), operation);
 }

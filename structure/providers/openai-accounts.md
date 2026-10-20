@@ -250,9 +250,9 @@ restored from the Accounts picker or Codex Auth through gated recovery: missing 
 from the canonical preset, disabled canonical rows are re-enabled without replacing saved mode or
 model settings, and noncanonical `openai` rows never receive that recovery path.
 
-`GET /api/codex-auth/accounts?refresh=1` treats missing main credentials, HTTP 401, and allowlisted
-terminal 403 codes as `needsReauth`; generic permission failures remain non-terminal, and a
-successful main usage refresh clears the runtime mark.
+Account listing and explicit refresh return stored pool accounts without creating a missing native `CODEX_HOME`; an unchecked main observation leaves credential/reauth state unchanged.
+When the native home is accessible, `GET /api/codex-auth/accounts?refresh=1` treats missing main credentials, HTTP 401 and allowlisted terminal 403 as `needsReauth`; successful refresh clears the runtime mark.
+Generic permission failures remain non-terminal; invalid explicit home paths and unsafe storage still fail closed, and credential operations retain their strict claim requirements.
 
 `src/codex/chatgpt-refresh-failure.ts` classifies token-endpoint failures for both stored-pool
 and native-main refresh. Exact structured terminal codes apply only to authentication-error

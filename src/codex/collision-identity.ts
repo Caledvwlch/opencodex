@@ -1,4 +1,4 @@
-import { extractAccountIdClaims, extractEmail } from "../oauth/chatgpt";
+import { decodeJwtPayload, extractAccountIdClaims, extractEmail } from "../oauth/chatgpt";
 import type { CodexAccount, OcxConfig } from "../types";
 import { getCodexAccountCredential } from "./account-store";
 import type { CodexTokens } from "./auth-collision";
@@ -60,9 +60,12 @@ export function observeMainCodexCollisionIdentity(tokens?: CodexTokens): void {
   const emails = new Set([extractEmail(tokens.id_token), extractEmail(undefined, tokens.access_token)]
     .flatMap(email => normalizedEmail(email) ? [normalizedEmail(email)!] : []));
   if (emails.size > 1) { suppressObservedUserId(); return; }
+  const idPayload: unknown = tokens.id_token === undefined ? undefined : decodeJwtPayload(tokens.id_token);
+  const idTokenMalformed = tokens.id_token !== undefined
+    && (idPayload === null || typeof idPayload !== "object" || Array.isArray(idPayload));
   const accessUser = nativeUserIdClaims(tokens.access_token);
   const idUser = tokens.id_token ? nativeUserIdClaims(tokens.id_token) : undefined;
-  const userId = !accessUser.conflict && !idUser?.conflict
+  const userId = !idTokenMalformed && !accessUser.conflict && !idUser?.conflict
     && (!idUser?.userId || idUser.userId === accessUser.userId)
     ? accessUser.userId : undefined;
   observed = { identity: { accountId, email: [...emails][0],

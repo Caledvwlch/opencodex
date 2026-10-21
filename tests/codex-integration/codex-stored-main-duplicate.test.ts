@@ -142,6 +142,18 @@ describe("stored Pool duplicate of native main", () => {
     });
     expect((await runPassiveRead(() => listCodexAuthAccounts(config)))[0]?.upstreamAccountKey).toBeUndefined();
   });
+  test("malformed present native ID token suppresses a previously observed join key", async () => {
+    writeFileSync(join(process.env.OPENCODEX_HOME!, "admin-api-token"), `ocx_admin_${"x".repeat(43)}\n`);
+    native("shared-account", "plus", email, true, "same-user");
+    expect((await runPassiveRead(() => listCodexAuthAccounts(config)))[0]?.upstreamAccountKey).toMatch(/^uai1_/);
+    observeMainCodexCollisionIdentity({
+      access_token: jwt("plus", email, "same-user"),
+      id_token: "malformed",
+      account_id: "shared-account",
+    });
+    expect((await runPassiveRead(() => listCodexAuthAccounts(config)))[0]?.upstreamAccountKey).toBeUndefined();
+    expect(codexAccountUnusableReason(config, poolId)).toBe("duplicate_main");
+  });
   test("existing duplicate is ineligible without deleting its credential or config row", () => {
     native();
     expect(codexAccountUnusableReason(config, poolId)).toBe("duplicate_main");

@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCodexAccountCredential, saveCodexAccountCredential } from "../../src/codex/account-store";
@@ -8,11 +8,13 @@ import { clearAccountNeedsReauth, isAccountNeedsReauth, markAccountNeedsReauth }
 import type { CodexAuthAccountDto } from "../../src/codex/auth-api/account-list";
 import { withNativeMainCredentialClaim } from "../../src/codex/auth-api/http";
 import { handleCodexAuthAPI } from "../../src/codex/auth-api/routes";
+import * as codexHome from "../../src/codex/home";
 import {
   captureMainAccountIdentityGeneration, clearMainAccountInfoCache,
   getMainAccountCredentialPresence, getMainAccountInfoCache,
 } from "../../src/codex/main-account-cache";
 import { MAIN_CODEX_ACCOUNT_ID } from "../../src/codex/main-account";
+import { getCodexHome } from "../../src/codex/paths";
 import { clearAccountQuota } from "../../src/codex/quota";
 import { resetQuotaQueryBackoffForTests } from "../../src/codex/quota-query-backoff";
 import { resetLifecycleDrainStateForTests } from "../../src/server/lifecycle";
@@ -23,8 +25,17 @@ let root: string;
 let nativeHome: string;
 let previousOcxHome: string | undefined;
 let previousCodexHome: string | undefined;
+let defaultHomeSpy: { mockRestore(): void } | undefined;
 let originalFetch: typeof fetch;
 const poolId = "headless-pool";
+const originalDefaultCodexHome = codexHome.defaultCodexHome;
+
+function isolateDefaultHome(userHome: string): void {
+  // Keep real filesystem resolution while excluding unrelated Windows homes on WSL.
+  defaultHomeSpy = spyOn(codexHome, "defaultCodexHome").mockImplementation(() => originalDefaultCodexHome({
+    homedir: () => userHome, env: {}, procVersion: "", release: "",
+  }));
+}
 
 function config(codexIntegration = false): OcxConfig {
   return {
@@ -86,6 +97,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  defaultHomeSpy?.mockRestore();
+  defaultHomeSpy = undefined;
   globalThis.fetch = originalFetch;
   resetRuntimeState();
   if (previousOcxHome === undefined) delete process.env.OPENCODEX_HOME;
@@ -121,6 +134,53 @@ describe("account listing without a native Codex home", () => {
     await expect(listAccounts(config())).rejects.toThrow("not a directory");
     expect(getCodexAccountCredential(poolId)).toEqual(credential);
     expect(readFileSync(nativeHome, "utf8")).toBe("fixture-not-a-directory");
+  });
+
+  for (const [method, suffix] of [["GET", ""], ["GET", "?refresh=1"], ["POST", "/refresh"]]) {
+    for (const kind of ["missing", "file", "dangling-link"] as const) {
+      test(`${method} accounts${suffix}: default home ${kind} only tolerates proven absence`, async () => {
+        const userHome = join(root, "user");
+        mkdirSync(userHome);
+        isolateDefaultHome(userHome);
+        delete process.env.CODEX_HOME;
+        nativeHome = join(userHome, ".codex");
+        if (kind === "file") writeFileSync(nativeHome, "fixture-not-a-directory");
+        if (kind === "dangling-link") symlinkSync(join(root, "missing-target"), nativeHome, "junction");
+        expect(getCodexHome()).toBe(nativeHome);
+        const credential = savePool();
+
+        if (kind === "missing") {
+          const accounts = await listAccounts(config(), method, suffix);
+          expect(accounts.find(account => account.id === poolId)?.hasCredential).toBe(true);
+          expect(existsSync(nativeHome)).toBe(false);
+        } else {
+          await expect(listAccounts(config(), method, suffix)).rejects.toMatchObject({ code: "CODEX_HOME_UNAVAILABLE" });
+          if (kind === "file") expect(readFileSync(nativeHome, "utf8")).toBe("fixture-not-a-directory");
+          else expect(lstatSync(nativeHome).isSymbolicLink()).toBe(true);
+        }
+        expect(getCodexAccountCredential(poolId)).toEqual(credential);
+        expect(isAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID)).toBe(false);
+      });
+    }
+  }
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an inaccessible default home is not treated as absent", async () => {
+    const userHome = join(root, "unreadable-user");
+    mkdirSync(userHome);
+    nativeHome = join(userHome, ".codex");
+    mkdirSync(nativeHome);
+    isolateDefaultHome(userHome);
+    delete process.env.CODEX_HOME;
+    const credential = savePool();
+    chmodSync(userHome, 0o000);
+    try {
+      expect(getCodexHome()).toBe(nativeHome);
+      await expect(listAccounts(config())).rejects.toMatchObject({ code: "CODEX_HOME_UNAVAILABLE" });
+      expect(getCodexAccountCredential(poolId)).toEqual(credential);
+      expect(isAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID)).toBe(false);
+    } finally {
+      chmodSync(userHome, 0o700);
+    }
   });
 
   test("a home removed during pool refresh does not fail final account projection", async () => {

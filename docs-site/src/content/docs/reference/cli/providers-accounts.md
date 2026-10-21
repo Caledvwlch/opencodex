@@ -677,7 +677,8 @@ changes Orca files, or changes the active pool account.
 Stored ChatGPT pool accounts remain listable on hosts without a native Codex home, including in the
 dashboard and on account refresh. Listing does not create a Codex home or sign out the native main
 account. Disabling the Codex client integration does not disable an existing native login's quota
-observation; invalid explicit `CODEX_HOME` paths still report a configuration error.
+observation; invalid explicit `CODEX_HOME` paths still report a configuration error. Unsafe
+`OPENCODEX_HOME` storage reports an error even when the native Codex home is missing.
 
 Without a provider, lists the Codex pool, OAuth accounts, and configured API-key pools. Empty
 providers are skipped unless `--all` is present. With a provider, lists only that credential family.

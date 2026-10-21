@@ -179,13 +179,31 @@ describe("account listing without a native Codex home", () => {
     expect(existsSync(nativeHome)).toBe(false);
   });
 
-  test("an unsafe OpenCodex storage root still refuses account listing", async () => {
+  for (const homeExists of [true, false]) {
+    test(`an unsafe OpenCodex storage root refuses account listing, native home exists=${homeExists}`, async () => {
+      if (homeExists) mkdirSync(nativeHome);
+      const unsafeRoot = join(root, "not-a-config-directory");
+      writeFileSync(unsafeRoot, "fixture-unsafe-root");
+      process.env.OPENCODEX_HOME = unsafeRoot;
+      await expect(listAccounts(config())).rejects.toMatchObject({ code: "PROFILE_STORAGE_UNSAFE" });
+      expect(readFileSync(unsafeRoot, "utf8")).toBe("fixture-unsafe-root");
+      expect(existsSync(nativeHome)).toBe(homeExists);
+    });
+  }
+
+  test("a home removed during refresh does not hide an unsafe storage root at projection", async () => {
     mkdirSync(nativeHome);
+    savePool();
     const unsafeRoot = join(root, "not-a-config-directory");
     writeFileSync(unsafeRoot, "fixture-unsafe-root");
-    process.env.OPENCODEX_HOME = unsafeRoot;
+    globalThis.fetch = (async () => {
+      removeTreeWithRetry(nativeHome);
+      process.env.OPENCODEX_HOME = unsafeRoot;
+      return usageResponse();
+    }) as typeof fetch;
     await expect(listAccounts(config())).rejects.toMatchObject({ code: "PROFILE_STORAGE_UNSAFE" });
     expect(readFileSync(unsafeRoot, "utf8")).toBe("fixture-unsafe-root");
+    expect(existsSync(nativeHome)).toBe(false);
   });
 
   test("credential operations still refuse a missing native home before executing", async () => {

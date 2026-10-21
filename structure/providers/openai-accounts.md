@@ -252,7 +252,7 @@ model settings, and noncanonical `openai` rows never receive that recovery path.
 
 Account listing and explicit refresh return stored pool accounts without creating a missing native `CODEX_HOME`; an unchecked main observation leaves credential/reauth state unchanged.
 When the native home is accessible, `GET /api/codex-auth/accounts?refresh=1` treats missing main credentials, HTTP 401 responses with a known terminal code, unrecognized HTTP 401 responses when the access token is not verifiably live, and allowlisted terminal 403 responses as `needsReauth`; successful refresh clears the runtime mark.
-Generic permission failures remain non-terminal; invalid explicit home paths and unsafe storage still fail closed, and credential operations retain their strict claim requirements.
+Generic permission failures remain non-terminal; invalid explicit home paths still fail closed. Native-profile context resolution validates OpenCodex storage before the native home, so unsafe storage fails closed even when that home is absent; credential operations retain their strict claim requirements.
 
 `src/codex/chatgpt-refresh-failure.ts` classifies token-endpoint failures for both stored-pool
 and native-main refresh. Exact structured terminal codes apply only to authentication-error

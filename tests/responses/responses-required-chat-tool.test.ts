@@ -87,3 +87,42 @@ test("a 151-tool call/result continuation retains the catalog and result", async
   expect(bodies[1]!.tools).toHaveLength(151);
   expect(bodies[1]!.messages).toContainEqual({ role: "tool", tool_call_id: call.call_id, content: "synthetic marker result" });
 });
+
+for (const call of ["remote.lookup", "lookup"]) test(`existing namespace echo restoration still satisfies required: ${call}`, async () => {
+  const cfg = { defaultProvider: "primary", providers: { primary: {
+    adapter: "openai-chat", baseUrl: "https://primary.invalid/v1", authMode: "key", apiKey: "fixture-key",
+    fetch: (async () => Response.json({ choices: [{ message: { role: "assistant", tool_calls: [{ id: "call_alias", type: "function", function: { name: call, arguments: "{}" } }] }, finish_reason: "tool_calls" }] })) as typeof fetch,
+  } } } as OcxConfig;
+  const response = await handleResponses(new Request("http://localhost/v1/responses", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "primary/fixture", stream: false, store: false, input: "Use lookup", tool_choice: "required",
+      tools: [{ type: "namespace", name: "remote", tools: [{ type: "function", name: "lookup", parameters: { type: "object", properties: {} } }] }] }),
+  }), cfg, { model: "", provider: "" });
+  const body = await response.json();
+  expect(body.status).toBe("completed");
+  expect(body.output.find((item: { type: string }) => item.type === "function_call")).toMatchObject({ name: "lookup", namespace: "remote" });
+});
+
+for (const stream of [false, true]) for (const combo of [false, true]) test(`existing bridge rejects a wrong named call (stream=${stream}, combo=${combo})`, async () => {
+  let sends = 0;
+  const primary: OcxProviderConfig = { adapter: "openai-chat", baseUrl: "https://primary.invalid/v1", authMode: "key", apiKey: "fixture-key",
+    fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sends++;
+      const call = { id: "call_wrong", type: "function", function: { name: "marker_1", arguments: "{}" } };
+      if (JSON.parse(String(init?.body)).stream) return new Response([
+        { choices: [{ delta: { tool_calls: [{ ...call, index: 0 }] }, finish_reason: null }] },
+        { choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+      ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+      return Response.json({ choices: [{ message: { role: "assistant", tool_calls: [call] }, finish_reason: "tool_calls" }] });
+    }) as typeof fetch };
+  const cfg = { defaultProvider: "primary", providers: { primary }, combos: { required: { alias: "chain/required", strategy: "failover", targets: [{ provider: "primary", model: "fixture" }] } } } as OcxConfig;
+  const response = await handleResponses(new Request("http://localhost/v1/responses", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: combo ? "chain/required" : "primary/fixture", stream, store: false, input: "Use marker_0", tools, tool_choice: { type: "function", name: "marker_0" } }),
+  }), cfg, { model: "", provider: "" });
+  const body = await response.text();
+  expect(body).toContain("upstream_server_error");
+  expect(body).not.toContain("response.output_item.done");
+  expect(body).not.toContain("response.completed");
+  expect(sends).toBe(1);
+});

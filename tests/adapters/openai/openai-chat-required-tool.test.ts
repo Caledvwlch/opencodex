@@ -29,8 +29,8 @@ for (const stream of [false, true]) {
     expect(events.some(e => e.type === "done")).toBe(false);
     expect(events.some(e => e.type === "text_delta" && e.text === "visible text")).toBe(true);
   });
-  test(`a wrong named mandatory tool does not satisfy the request (stream=${stream})`, async () => {
-    expect((await parse({ name: "marker_0" }, stream, "marker_1")).at(-1)).toMatchObject({ type: "error", code: "required_tool_not_called" });
+  test(`a named mandatory request without a call fails (stream=${stream})`, async () => {
+    expect((await parse({ name: "marker_0" }, stream)).at(-1)).toMatchObject({ type: "error", code: "required_tool_not_called" });
   });
   for (const choice of ["auto", "none", undefined] as const) test(`ordinary text succeeds for ${choice} (stream=${stream})`, async () => {
     expect((await parse(choice, stream)).at(-1)?.type).toBe("done");

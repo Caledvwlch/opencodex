@@ -255,6 +255,14 @@ Codex pool selection applies to the next request after clearing existing affinit
 { accounts: AccountRow[], notes: string[] }
 ```
 
+Codex JSON 행에는 등록된 `id`와 같은 `slotId`, 그리고 `native-main` 또는 `pool`인
+`slotKind`가 포함됩니다. 프록시가 상위 계정과 사용자 식별값을 모두 확인하면
+`uai1_` 뒤에 소문자 16진수 64자리가 붙는 `upstreamAccountKey`도 제공합니다.
+같은 `openai` 제공자에서 키가 같으면 한 상위 사용자의 슬롯이며, 각 슬롯과 한도 상태는
+그대로 유지해야 합니다. 키는 이 설치 환경에 한정되고 관리자 토큰이 바뀌면 달라질 수
+있습니다. 키가 없을 때는 가려진 이메일이나 한도가 비슷하다는 이유로 묶지 않습니다.
+상위 계정 ID·사용자 식별값·인증 정보 원문은 목록에 포함되지 않습니다.
+
 ### `ocx account current <provider> [--json]`
 
 활성 계정이나 키를 보여줍니다. 수동 고정이 없는 Codex 풀은 우선순위를 고려한 자동 선택을 보고합니다. 가장 우선순위가 높은 적격 tier를 고르고, 그 tier 안에서 할당량 라우팅 기준으로 가장 적게 사용한 항목을 선택합니다. 활성 자격 증명이 없는 다른 계열은 그 상태를 보고하고도 종료 코드 0으로 끝납니다. `--json`은 다음을 반환합니다:

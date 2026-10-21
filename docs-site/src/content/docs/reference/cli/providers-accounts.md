@@ -698,6 +698,14 @@ returns:
 { accounts: AccountRow[], notes: string[] }
 ```
 
+Codex JSON rows include `slotId` (the registered `id`) and `slotKind` (`native-main` or
+`pool`). When the proxy can verify both the upstream account and user identity, it also
+includes `upstreamAccountKey` (`uai1_` followed by 64 lowercase hexadecimal characters).
+Equal keys within the `openai` provider identify slots for the same upstream user; keep
+each slot and its quota state separately. The key is local to this installation and can
+change when its administrator token rotates. If it is absent, do not infer a match from
+masked email or quota values. Raw upstream IDs, user claims and credentials are not listed.
+
 An empty provider listing names the next command in human output and JSON `notes`:
 `ocx account login <provider>` for OAuth/Codex, or `ocx account add-key <provider>`
 with a human-controlled piped stdin source for API keys. An empty global listing

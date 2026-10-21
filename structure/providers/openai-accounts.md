@@ -37,6 +37,7 @@ preserving a stale one would block every later migration.
 
 ## Model and wire identity
 
+Account-list rows retain each registered `slotId` and `slotKind`; optional `upstreamAccountKey` is a versioned HMAC of the ChatGPT account ID and user claim under the local administrator token. Native identity comes from the owned observation without passive credential reads; missing or conflicting claims omit the key, and token rotation changes it. No raw identity or credential is serialized.
 The optional [native reasoning retention policy](../transports/native-reasoning-retention.md#runtime-boundary) can permit reasoning ciphertext forwarding across a known model or account change on the same canonical ChatGPT destination. It does not change account selection, entitlement, cache isolation, continuation-id ownership or uploaded-file retention; cross-account acceptance is not guaranteed.
 
 Native Spark membership and its model-specific request/tool exceptions are removed; the shared

@@ -4,9 +4,11 @@ import { getCodexAccountCredential } from "./account-store";
 import type { CodexTokens } from "./auth-collision";
 import { captureMainAccountIdentityGeneration, isMainAccountIdentityGenerationLive } from "./main-account-cache";
 import { codexPlanKey, extractChatgptPlanType } from "./plan";
+import { nativeUserIdClaims } from "./reserve-availability";
 
 export interface CodexCollisionIdentity {
   accountId: string;
+  userId?: string;
   email?: string | null;
   plan?: unknown;
 }
@@ -34,19 +36,37 @@ function homeScope(): string {
 
 let observed: { identity: CodexCollisionIdentity; homeScope: string; generation: number } | undefined;
 
+function suppressObservedUserId(): void {
+  if (!observed || observed.homeScope !== homeScope()
+    || !isMainAccountIdentityGenerationLive(observed.generation)) return;
+  observed = { ...observed, identity: { ...observed.identity, userId: undefined } };
+}
+
 /** Only existing owned lifecycle observations may publish; never call with a request bearer. */
 export function observeMainCodexCollisionIdentity(tokens?: CodexTokens): void {
   if (!tokens) { observed = undefined; return; }
   if (typeof tokens.access_token !== "string" || typeof tokens.account_id !== "string"
-    || (tokens.id_token !== undefined && typeof tokens.id_token !== "string")) return;
+    || (tokens.id_token !== undefined && typeof tokens.id_token !== "string")) {
+    suppressObservedUserId();
+    return;
+  }
   const claims = [extractAccountIdClaims(tokens.id_token), extractAccountIdClaims(tokens.access_token)];
-  if (claims.some(claim => claim.conflict)) return;
+  if (claims.some(claim => claim.conflict)) { suppressObservedUserId(); return; }
   const accountId = tokens.account_id || claims.find(claim => claim.accountId)?.accountId;
-  if (!accountId || claims.some(claim => claim.accountId && claim.accountId !== accountId)) return;
+  if (!accountId || claims.some(claim => claim.accountId && claim.accountId !== accountId)) {
+    suppressObservedUserId();
+    return;
+  }
   const emails = new Set([extractEmail(tokens.id_token), extractEmail(undefined, tokens.access_token)]
     .flatMap(email => normalizedEmail(email) ? [normalizedEmail(email)!] : []));
-  if (emails.size > 1) return;
+  if (emails.size > 1) { suppressObservedUserId(); return; }
+  const accessUser = nativeUserIdClaims(tokens.access_token);
+  const idUser = tokens.id_token ? nativeUserIdClaims(tokens.id_token) : undefined;
+  const userId = !accessUser.conflict && !idUser?.conflict
+    && (!idUser?.userId || idUser.userId === accessUser.userId)
+    ? accessUser.userId : undefined;
   observed = { identity: { accountId, email: [...emails][0],
+    ...(userId ? { userId } : {}),
     plan: extractChatgptPlanType(tokens.id_token, tokens.access_token) },
     homeScope: homeScope(), generation: captureMainAccountIdentityGeneration() };
 }

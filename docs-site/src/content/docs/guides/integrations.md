@@ -79,15 +79,17 @@ and settings. Models appear once in the provider catalog; duplicating them in
 `modelConfigs.customModels` causes Qoder to reject the provider. Refreshing an older managed
 integration removes its recorded duplicate rows; user-edited rows remain conflicts. Disable removes the recorded OpenCodex entries; restore uses the existing
 snapshot workflow. The provider's default model is the first model in the sorted export.
+If `modelConfigs.customModels` already holds an `opencodex` row for an exported model that
+OpenCodex did not write, enable, refresh, overwrite and disable report a conflict and leave the
+file unchanged; remove or rename that row in Qoder's settings, then try again. Rows for other
+providers or for models outside the export are left alone.
 Provider models use their catalog `contextWindow`, falling back to 128000 input tokens.
 Restart Qoder after refreshing an existing integration to reload the provider registry.
 The generated API key is a non-secret placeholder: Qoder integration requires loopback
 access and refuses an authenticated non-loopback bind. When the dedicated unauthenticated
 loopback listener is enabled, exports point Qoder at that listener. `ocx sync` and catalog
 changes refresh an already enabled Qoder integration like the other managed clients.
-If a catalog model ID contains `,` or `]` (for example `kimi/k3[1m]`), Qoder reports
-that its configuration cannot be verified; other integration statuses remain available.
-Managed preview and changes remain refused while the catalog contains that model ID.
+Model IDs containing `,` or `]` (for example `kimi/k3[1m]`) are exported like any other model.
 
 Generated catalogs include only enabled models from each provider selection. This applies to both
 downloads and managed integrations, including Pi and Aside. The management model list still shows

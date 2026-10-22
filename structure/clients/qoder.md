@@ -15,11 +15,20 @@ restore uses its snapshots. On refresh, older ownership records remove their pre
 owned custom-model rows before merging the provider-only contribution. Foreign rows remain
 untouched, and edits to previously owned rows remain conflicts. The legacy selector template
 in `src/integrations/mutation-plan.ts` stays available for previewing that removal.
-Because the provider catalog needs no array selector, model IDs containing `,` or `]` no
-longer make Qoder's contribution unaddressable. The shared reader's typed
-`UnrepresentableSelectorError` status guard from
-[ADR-7512](../decisions/ADR-7512-qoder-selector-status.md) remains the contract for any
-generated contribution that cannot name its owned element.
+An unowned `modelConfigs.customModels` row with `provider: "opencodex"` and a model the
+provider catalog also exports would recreate that rejection, so `classifyIntegration` reports
+it as a `conflict` / `unowned-key` before any write; `qoderLegacyCatalogCollision` decides
+which rows collide, and rows an ownership record still names are left to the refresh above.
+Rows for other providers or other models stay untouched and never conflict.
+Because the provider catalog needs no array selector, model IDs containing `,` or `]` are
+ordinary Qoder models. The shared reader still reports any contribution that raises
+`UnrepresentableSelectorError` as `unsafe` / `unresolvable-path` while preview and mutation
+refuse it, so a later selector-bearing fragment cannot fail the whole status collection.
+
+> Decision record: [ADR-7512](../decisions/ADR-7512-qoder-selector-status.md)
+
+> Decision record: [ADR-7390](../decisions/ADR-7390-qoder-legacy-catalog-collision.md)
+
 The default model is the first normalized model; an empty catalog omits the default.
 Input limits use authoritative context metadata or Qoder's requested 128000 fallback.
 Exports reject non-loopback placeholder use; the writer's existing admission gate protects

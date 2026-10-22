@@ -77,3 +77,32 @@ export function buildQoderContribution(ctx: ExportContext): ManagedContribution 
     ],
   };
 }
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Does an unowned legacy `modelConfigs.customModels` row name a model this
+ * contribution's provider catalog exports? Qoder rejects the whole provider
+ * when one key appears in both catalogs, so keeping such a row while adding
+ * `providers.opencodex` recreates the failure the provider-only export fixes,
+ * and deleting it would discard configuration we never wrote. `owned` holds
+ * the rows an ownership record still names; refresh removes those itself.
+ */
+export function qoderLegacyCatalogCollision(
+  doc: unknown,
+  contribution: ManagedContribution,
+  owned: ReadonlySet<unknown>,
+): boolean {
+  const provider = contribution.fragments.find(fragment => fragment.path.length === 2
+    && fragment.path[0] === "providers" && fragment.path[1] === OPENCODE_PROVIDER_ID)?.value;
+  const exported = new Set(isPlainRecord(provider) && Array.isArray(provider.models)
+    ? provider.models.flatMap(model => isPlainRecord(model) && typeof model.model === "string" ? [model.model] : [])
+    : []);
+  const modelConfigs = isPlainRecord(doc) ? doc.modelConfigs : undefined;
+  const rows = isPlainRecord(modelConfigs) ? modelConfigs.customModels : undefined;
+  if (exported.size === 0 || !Array.isArray(rows)) return false;
+  return rows.some(row => isPlainRecord(row) && row.provider === OPENCODE_PROVIDER_ID
+    && typeof row.model === "string" && exported.has(row.model) && !owned.has(row));
+}

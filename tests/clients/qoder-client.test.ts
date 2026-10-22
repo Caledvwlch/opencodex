@@ -5,7 +5,9 @@ import { dirname, join } from "node:path";
 import { buildClientConfigText, buildClientContribution, buildQoderClientConfig, EXPORT_CLIENTS, qoderConfigPath, type ExportContext } from "../../src/clients/config-export";
 import { INTEGRATION_CLIENTS } from "../../src/integrations/registry";
 import { createIntegrationStateStore } from "../../src/integrations/store";
-import { applyIntegration, disableIntegration, refreshIntegration, restoreIntegration, type IntegrationWriteInput } from "../../src/integrations/writer";
+import { applyIntegration, disableIntegration, overwriteIntegration, refreshIntegration, restoreIntegration, type IntegrationWriteInput } from "../../src/integrations/writer";
+import { previewIntegration } from "../../src/integrations/mutation-plan";
+import { readIntegrationState } from "../../src/integrations/state";
 import type { OcxConfig } from "../../src/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { handleExportCommand } from "../../src/cli/export-command";
@@ -221,5 +223,39 @@ describe("Qoder client integration", () => {
       expect(disableIntegration(f.input).ok).toBe(true);
       expect(f.read()).toEqual({ ...f.original, theme: "light" });
     }
+  });
+
+  const unowned = { provider: "opencodex", model: "mock/a", apiKey: "user-placeholder", displayName: "mine" };
+
+  test.each([false, true])("an unowned opencodex row for an exported model refuses before writing (recorded=%s)", recorded => {
+    const f = fixture();
+    if (recorded) expect(applyIntegration(f.input).ok).toBe(true);
+    const document = f.read();
+    document.modelConfigs.customModels.push(unowned);
+    const before = JSON.stringify(document, null, 2);
+    writeFileSync(f.path, before);
+    const records = JSON.stringify(f.input.store!.readRecords());
+    expect(readIntegrationState(f.input)).toMatchObject({ state: "conflict", reason: "unowned-key" });
+    for (const operation of ["apply", "overwrite", "disable"] as const) {
+      expect(previewIntegration(f.input, { operation })).toMatchObject({ canApply: false, refusalReason: "conflict" });
+    }
+    const writes = recorded
+      ? [refreshIntegration(f.input), applyIntegration(f.input), overwriteIntegration(f.input), disableIntegration(f.input)]
+      : [applyIntegration(f.input), overwriteIntegration(f.input)];
+    for (const result of writes) expect(result).toMatchObject({ ok: false, reason: "conflict", message: expect.stringContaining("modelConfigs.customModels") });
+    expect(readFileSync(f.path, "utf8")).toBe(before);
+    expect(JSON.stringify(f.input.store!.readRecords())).toBe(records);
+  });
+
+  test("opencodex rows for other models and other providers' rows for exported models do not conflict", () => {
+    const f = fixture();
+    const document = f.read();
+    document.modelConfigs.customModels.push({ ...unowned, model: "mock/z" }, { ...unowned, provider: "elsewhere" });
+    writeFileSync(f.path, JSON.stringify(document));
+    expect(readIntegrationState(f.input)).toMatchObject({ state: "absent" });
+    expect(applyIntegration(f.input)).toMatchObject({ ok: true, state: "current" });
+    expect(f.read().modelConfigs.customModels).toEqual(document.modelConfigs.customModels);
+    expect(disableIntegration(f.input).ok).toBe(true);
+    expect(f.read()).toEqual(document);
   });
 });

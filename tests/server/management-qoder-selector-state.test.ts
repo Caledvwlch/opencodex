@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileS
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { EXPORT_CLIENTS, qoderConfigPath } from "../../src/clients/config-export";
+import { UnrepresentableSelectorError } from "../../src/integrations/merge";
 import { INTEGRATION_CLIENT_IDS } from "../../src/integrations/registry";
 import { readIntegrationState } from "../../src/integrations/state";
 import { createIntegrationStateStore } from "../../src/integrations/store";
@@ -65,7 +66,7 @@ function api(path = "", body?: unknown) {
 }
 
 for (const model of ["k3[1m]", "k3,other"]) {
-  test(`an unrepresentable Qoder model (${model}) does not break collection or single status`, async () => {
+  test(`a selector-hostile Qoder model (${model}) does not break collection or single status`, async () => {
     const control = await (await api("/hermes")).json();
     config.providers.fixture!.models = ["k3", model];
     const before = witness();
@@ -74,8 +75,9 @@ for (const model of ["k3[1m]", "k3,other"]) {
     const { clients } = await response.json() as { clients: Array<{ clientId: string }> };
     expect(clients.map(client => client.clientId)).toEqual(INTEGRATION_CLIENT_IDS);
     const qoder = clients.find(client => client.clientId === "qoder");
+    // The provider-only catalog needs no array selector, so the ID is ordinary.
     expect(qoder).toMatchObject({
-      state: "unsafe", reason: "unresolvable-path", installed: false,
+      state: "absent", installed: false,
       configPath: qoderConfigPath({}, home), snapshotCount: 0, retentionDegraded: false,
     });
     expect(clients.find(client => client.clientId === "hermes")).toEqual(control);
@@ -87,41 +89,47 @@ for (const model of ["k3[1m]", "k3,other"]) {
   });
 }
 
-test("unsafe status does not authorize preview or mutation to write Qoder settings", async () => {
+test("a typed selector refusal reports unsafe status and authorizes no preview or mutation", async () => {
   const path = qoderConfigPath({}, home);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ theme: "user-owned", modelConfigs: { customModels: [{ provider: "other", model: "fixture/k3[1m]" }] } }));
-  config.providers.fixture!.models = ["k3", "k3[1m]"];
-  const before = witness();
-  expect((await api()).status).toBe(200); // Populates the authoritative preview roster.
-  expect(await (await api("/qoder")).json()).toMatchObject({ state: "unsafe", installed: true });
-  const preview = await api("/preview", { clientId: "qoder", operation: "apply" });
-  expect(preview.status).toBeGreaterThanOrEqual(400);
-  for (const enabled of [true, false]) {
-    expect((await api("/qoder", { enabled })).status).toBeGreaterThanOrEqual(400);
+  writeFileSync(path, JSON.stringify({ theme: "user-owned" }));
+  const builder = spyOn(EXPORT_CLIENTS.qoder, "buildContribution").mockImplementation(() => {
+    throw new UnrepresentableSelectorError("fixture cannot name its owned element");
+  });
+  try {
+    const before = witness();
+    const response = await api(); // Also populates the authoritative preview roster.
+    expect(response.status).toBe(200);
+    const { clients } = await response.json() as { clients: Array<{ clientId: string }> };
+    expect(clients.map(client => client.clientId)).toEqual(INTEGRATION_CLIENT_IDS);
+    expect(await (await api("/qoder")).json()).toMatchObject({
+      state: "unsafe", reason: "unresolvable-path", installed: true, configPath: path,
+    });
+    const preview = await api("/preview", { clientId: "qoder", operation: "apply" });
+    expect(preview.status).toBeGreaterThanOrEqual(400);
+    for (const enabled of [true, false]) {
+      expect((await api("/qoder", { enabled })).status).toBeGreaterThanOrEqual(400);
+    }
+    expect(witness()).toBe(before);
+    expect(persisted).toBe(0);
+  } finally {
+    builder.mockRestore();
   }
-  expect(witness()).toBe(before);
-  expect(persisted).toBe(0);
 });
 
-test("representable Qoder catalogs still support status, preview and apply", async () => {
+test("Qoder catalogs with selector-hostile IDs support status, preview and apply", async () => {
   mkdirSync(dirname(qoderConfigPath({}, home)), { recursive: true });
+  config.providers.fixture!.models = ["k3", "k3[1m]"];
   expect((await api()).status).toBe(200);
   expect(await (await api("/qoder")).json()).toMatchObject({ state: "absent", installed: true });
   const preview = await api("/preview", { clientId: "qoder", operation: "apply" });
   expect(preview.status).toBe(200);
   expect(await preview.json()).toMatchObject({ canApply: true });
   expect((await api("/qoder", { enabled: true })).status).toBe(200);
-  const current = await (await api("/qoder")).json() as Record<string, unknown>;
-  expect(current.state).toBe("current");
-  const before = witness();
-  config.providers.fixture!.models = ["k3[1m]"];
-  const refused = await api("/qoder");
-  expect(refused.status).toBe(200);
-  expect(await refused.json()).toMatchObject({
-    ...current, state: "unsafe", reason: "unresolvable-path",
-  });
-  expect(witness()).toBe(before);
+  expect(await (await api("/qoder")).json()).toMatchObject({ state: "current" });
+  const written = JSON.parse(readFileSync(qoderConfigPath({}, home), "utf8"));
+  expect(written.providers.opencodex.models.map((row: { model: string }) => row.model)).toEqual(expect.arrayContaining(["fixture/k3", "fixture/k3[1m]"]));
+  expect(written).not.toHaveProperty("modelConfigs");
 });
 
 test("unexpected contribution errors still propagate instead of becoming unsafe status", () => {

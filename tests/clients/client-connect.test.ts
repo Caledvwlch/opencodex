@@ -873,8 +873,12 @@ function runConnectedStateScenario(mode: "sync-401" | "sync-503" | "disconnect-c
     })();
   `;
   const cleanup = () => {
-    removeTreeWithRetry(opencodexHome);
-    removeTreeWithRetry(codexHome);
+    const failures: unknown[] = [];
+    for (const home of [opencodexHome, codexHome]) {
+      try { removeTreeWithRetry(home); }
+      catch (error) { failures.push(error); }
+    }
+    if (failures.length) throw new AggregateError(failures, "Could not clean connected client homes");
   };
   try {
     const { status, parsed } = runEvalChild(script, {
@@ -882,7 +886,8 @@ function runConnectedStateScenario(mode: "sync-401" | "sync-503" | "disconnect-c
     });
     return { status, parsed, cleanup };
   } catch (error) {
-    cleanup();
+    try { cleanup(); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], "Connected client scenario failed and fixture cleanup failed"); }
     throw error;
   }
 }

@@ -24,11 +24,11 @@ function parsed(modelId = "deepseek/deepseek-v4-flash", reasoning = "high"): Ocx
   };
 }
 
-function adapterWith(fetch: typeof globalThis.fetch) {
+function adapterWith(fetch: typeof globalThis.fetch, authMode: OcxProviderConfig["authMode"] = "oauth") {
   return createCommandCodeAdapter({
     adapter: "command-code",
     baseUrl: "https://api.commandcode.ai",
-    authMode: "oauth",
+    authMode,
     apiKey: "synthetic-credential",
     fetch,
   } as OcxProviderConfig & { fetch: typeof globalThis.fetch });
@@ -80,6 +80,25 @@ describe("Command Code insufficient-credit refusal", () => {
       expect(response.status).toBe(fixture.status);
       expect(response.headers.get("x-opencodex-refusal")).toBeNull();
       expect(response.headers.get("x-opencodex-upstream-status")).toBeNull();
+    }
+  });
+
+  test("leaves the credit refusal as a 400 on key and forward rows", async () => {
+    // Only OAuth has sibling accounts to rotate to. A canonical key row has a same-key 429 retry
+    // ladder (rateLimitRetryPolicyFor), so a rewrite would replay a credential with no credits left.
+    for (const authMode of ["key", "forward"] as const) {
+      let calls = 0;
+      const adapter = adapterWith((async () => {
+        calls += 1;
+        return new Response(JSON.stringify(CREDITS_EXHAUSTED), { status: 400 });
+      }) as typeof globalThis.fetch, authMode);
+      const response = await adapter.fetchResponse(await adapter.buildRequest(parsed()));
+
+      expect(calls).toBe(1);
+      expect(response.status).toBe(400);
+      expect(response.headers.get("x-opencodex-refusal")).toBeNull();
+      expect(response.headers.get("x-opencodex-upstream-status")).toBeNull();
+      expect(await response.json()).toEqual(CREDITS_EXHAUSTED);
     }
   });
 

@@ -494,9 +494,13 @@ function isReasoningEffortRejection(status: number, payload: string): boolean {
 }
 
 /** Command Code reports exhausted credits as BAD_REQUEST; normalize only that refusal
- * so every caller can reuse the existing OAuth quota rotation and send budget. */
-async function normalizeCommandCodeCreditRefusal(response: Response, signal?: AbortSignal): Promise<Response> {
-  if (response.status !== 400) return response;
+ * so every caller can reuse the existing OAuth quota rotation and send budget. Key and
+ * forward rows keep the 400: a canonical key row has a same-key 429 retry ladder
+ * (`rateLimitRetryPolicyFor`) that would replay a credential whose credits are gone. */
+async function normalizeCommandCodeCreditRefusal(
+  response: Response, oauth: boolean, signal?: AbortSignal,
+): Promise<Response> {
+  if (!oauth || response.status !== 400) return response;
   try {
     const observed = await readBoundedResponseBody(response.clone(), {
       signal,
@@ -614,6 +618,8 @@ function supportedCommandCodeEffort(provider: OcxProviderConfig, modelId: string
 
 export function createCommandCodeAdapter(provider: OcxProviderConfig): ProviderAdapter {
   const executor = (provider as OcxProviderConfig & { fetch?: typeof globalThis.fetch }).fetch ?? globalThis.fetch;
+  // Only an OAuth row has sibling accounts for the rewritten 429 to rotate to.
+  const creditRefusalRotates = provider.authMode === "oauth";
   // The server builds one adapter per routed request and hands parseStream a guarded wrapper
   // rather than the Response fetchResponse returned, so the stream reads the declared catalog of
   // the request this instance last built. A parser with no built request restores nothing.
@@ -677,7 +683,7 @@ export function createCommandCodeAdapter(provider: OcxProviderConfig): ProviderA
     async fetchResponse(request: AdapterRequest, ctx?: AdapterFetchContext): Promise<Response> {
       const send = createAdapterPhysicalSend(ctx, executor);
       const response = await normalizeCommandCodeCreditRefusal(
-        await send({ url: request.url, dispatch: physical => fetchCommandCode(request, ctx, physical) }), ctx?.abortSignal,
+        await send({ url: request.url, dispatch: physical => fetchCommandCode(request, ctx, physical) }), creditRefusalRotates, ctx?.abortSignal,
       );
       if (response.ok) return response;
       const currentEffort = (() => {
@@ -707,7 +713,7 @@ export function createCommandCodeAdapter(provider: OcxProviderConfig): ProviderA
       try {
         return await normalizeCommandCodeCreditRefusal(await send({ url: retry.url, sendClass: "repair", recovery: "reasoning-effort-downgrade",
           beforeDispatch: () => { try { void response.body?.cancel().catch(() => {}); } catch { /* already closed */ } },
-          dispatch: physical => fetchCommandCode(retry, ctx, physical) }), ctx?.abortSignal);
+          dispatch: physical => fetchCommandCode(retry, ctx, physical) }), creditRefusalRotates, ctx?.abortSignal);
       } catch (error) {
         if (error instanceof SendBudgetExhaustedError) return response;
         throw error;

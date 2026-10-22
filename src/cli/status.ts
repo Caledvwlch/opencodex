@@ -779,6 +779,29 @@ export function deadProxyRoutingAdviceLines(input: {
   ];
 }
 
+type StatusRoutingView = Pick<CliStatusJson, "proxy" | "startup" | "remoteHub" | "connection">;
+
+/** `unusedProxyWarningLines` for the human `ocx status` report, role taken from the report itself. */
+export function statusUnusedProxyLines(json: StatusRoutingView): string[] {
+  return unusedProxyWarningLines({
+    proxyUp: Boolean(json.proxy.pid || json.proxy.health.ok),
+    routingKind: json.startup.routingKind,
+    ...(json.remoteHub.connected ? { connectedClient: {
+      transport: json.connection.transport === "link" ? "link" as const : "hub" as const,
+      serviceInstalled: json.startup.serviceInstalled && !json.startup.serviceConflict,
+    } } : {}),
+  });
+}
+
+/** `deadProxyRoutingAdviceLines` for the not-running half of the human `ocx status` report. */
+export function statusDeadProxyLines(json: StatusRoutingView): string[] {
+  return deadProxyRoutingAdviceLines({
+    proxyUp: false,
+    routingKind: json.startup.routingKind,
+    connectedClient: json.remoteHub.connected,
+  });
+}
+
 /**
  * Read the live Codex config and report an opencodex catalog pointer whose file is gone.
  *

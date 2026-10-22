@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { deriveDesktopStartup } from "../../src/service/desktop-startup";
 import { collectStartupHealth, deriveStartupHealth, formatStartupRoutingDetail, injectedRoutingRestartWarningLines, startupHealthSummary } from "../../src/codex/autostart-health";
-import { deadProxyRoutingAdviceLines, unusedProxyWarningLines } from "../../src/cli/status";
+import { deadProxyRoutingAdviceLines, statusDeadProxyLines, statusUnusedProxyLines, unusedProxyWarningLines } from "../../src/cli/status";
 import { classifyCodexRouting, hasInjectedCodexRouting } from "../../src/codex/inject";
 import { isCodexClientProcess, listCodexClientProcesses } from "../../src/codex/native-profile-processes";
 import { collectRoutingAdoption, deriveRoutingAdoption } from "../../src/codex/routing-adoption";
@@ -461,6 +461,21 @@ describe("routing visibility (#2411)", () => {
     expect(client).toContain("ocx restore");
     expect(client).toContain("'ocx sync --restart-codex' points Codex back at this client");
     expect(deadProxyRoutingAdviceLines({ proxyUp: false, routingKind: "opencodex-local" }).join("\n")).not.toContain("ocx sync");
+  });
+
+  test("ocx status takes the client role, transport and service from its own report", () => {
+    const view = (connected: boolean, transport: "hub" | "link" | undefined, routingKind: "native" | "opencodex-local", up: boolean) => ({
+      proxy: { pid: up ? 1 : null, health: { ok: up } },
+      startup: { ...base, routingKind, serviceInstalled: true, serviceConflict: false },
+      remoteHub: { connected },
+      connection: { transport },
+    }) as unknown as Parameters<typeof statusUnusedProxyLines>[0];
+    expect(statusUnusedProxyLines(view(true, "link", "native", true)).join("\n")).toContain("not the Home. Re-point with: ocx sync --restart-codex");
+    expect(statusUnusedProxyLines(view(true, undefined, "native", false)).join("\n")).toContain("not the hub");
+    expect(statusUnusedProxyLines(view(true, "link", "native", false)).join("\n")).toContain("'ocx service start'");
+    expect(statusUnusedProxyLines(view(false, undefined, "native", true)).join("\n")).toContain("Re-point with: ocx start");
+    expect(statusDeadProxyLines(view(true, "link", "opencodex-local", false)).join("\n")).toContain("ocx sync --restart-codex");
+    expect(statusDeadProxyLines(view(false, undefined, "opencodex-local", false)).join("\n")).not.toContain("ocx sync");
   });
 
   // #5261: setup writes routing that outlives the session and then ends on a success line.

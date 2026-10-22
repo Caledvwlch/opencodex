@@ -77,7 +77,7 @@ import {
   pendingTeardownsAreExactly,
   quarantinePendingTeardown,
 } from "../config/pending-teardown";
-import { collectStatus, deadProxyRoutingAdviceLines, detectMissingCodexCatalogPath, hubStatusLines, missingCodexCatalogLines, remoteHubBannerLine, remoteHubStatusLines, runtimeSupervisorLine, unusedProxyWarningLines } from "./status";
+import { collectStatus, detectMissingCodexCatalogPath, hubStatusLines, missingCodexCatalogLines, remoteHubBannerLine, remoteHubStatusLines, runtimeSupervisorLine, statusDeadProxyLines, statusUnusedProxyLines } from "./status";
 import { endpointsToProve, everyEndpointProvenDownAsync, sharedTeardownAuthorized, type UninstallObservation } from "./uninstall-plan";
 import { takeFlag } from "./runtime-api";
 import { parseStartOptions, StartArgsError } from "./start-args";
@@ -1088,7 +1088,6 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
   // the record; a record left behind by a hard-killed sibling still says so.
   const siblingOfPort = readRuntimePort()?.siblingOfPort;
   const stoppingSibling = siblingOfPort !== undefined;
-  // A connected client's routing, catalog and Grok config belong to its connection (#7563).
   const connectedClientSkip = stoppingSibling ? null : connectedClientStopSkipLine(readClientConnectionState());
   // Structured twin of the human lines below, for `ocx stop --json`: one document the
   // desktop shell can read across the process boundary (D4). Every field is assigned
@@ -1756,14 +1755,7 @@ async function handleStatus() {
   if (status.json.versionSkew.warning) {
     console.log(`   ⚠️  ${status.json.versionSkew.warning}`);
   }
-  for (const line of unusedProxyWarningLines({
-    proxyUp: Boolean(status.json.proxy.pid || status.json.proxy.health.ok),
-    routingKind: status.json.startup.routingKind,
-    ...(status.json.remoteHub.connected ? { connectedClient: {
-      transport: status.json.connection.transport === "link" ? "link" as const : "hub" as const,
-      serviceInstalled: status.json.startup.serviceInstalled && !status.json.startup.serviceConflict,
-    } } : {}),
-  })) {
+  for (const line of statusUnusedProxyLines(status.json)) {
     console.log(`   ${line}`);
   }
   if (!(status.json.proxy.pid || status.json.proxy.health.ok)) {
@@ -1789,11 +1781,7 @@ async function handleStatus() {
       : "     Restart with 'ocx start', or install the persistent service: 'ocx service install'.");
     // Restarting is only half the choice. A user who cannot sign in to Codex at all needs the
     // way out that does not require this proxy to come back (#5261).
-    for (const line of deadProxyRoutingAdviceLines({
-      proxyUp: false,
-      routingKind: status.json.startup.routingKind,
-      connectedClient: status.json.remoteHub.connected,
-    })) {
+    for (const line of statusDeadProxyLines(status.json)) {
       console.log(`     ${line}`);
     }
   }

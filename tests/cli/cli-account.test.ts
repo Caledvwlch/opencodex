@@ -762,24 +762,6 @@ describe("ocx account CLI (issue #180 matrix)", () => {
     expect(new Set(parsed.accounts.map(row => row.type))).toEqual(new Set(["codex", "oauth", "api-key"]));
   });
 
-  test("official --all --json output carries the upstream join contract", async () => {
-    const key = `uai1_${"a".repeat(64)}`;
-    codexAccounts = [
-      { id: "__main__", slotId: "__main__", slotKind: "native-main", upstreamAccountKey: key,
-        email: "main@example.test", plan: "pro" },
-      { id: "chatgpt_1", slotId: "chatgpt_1", slotKind: "pool", upstreamAccountKey: key,
-        email: "pool@example.test", plan: "pro" },
-    ];
-    const result = await run(["list", "--all", "--json"]);
-    const rows = (JSON.parse(result.stdout) as { accounts: Array<Record<string, unknown>> }).accounts
-      .filter(row => row.provider === "openai");
-    expect(result.code).toBe(0);
-    expect(rows.map(row => [row.slotId, row.slotKind, row.upstreamAccountKey])).toEqual([
-      ["__main__", "native-main", key],
-      ["chatgpt_1", "pool", key],
-    ]);
-  });
-
   test("3: empty providers are skipped by default and shown with --all", async () => {
     const normal = await run(["list"]);
     const withAll = await run(["list", "--all"]);

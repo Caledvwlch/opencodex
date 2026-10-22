@@ -65,7 +65,9 @@ export function observeMainCodexCollisionIdentity(tokens?: CodexTokens): void {
     && (idPayload === null || typeof idPayload !== "object" || Array.isArray(idPayload));
   const accessUser = nativeUserIdClaims(tokens.access_token);
   const idUser = tokens.id_token ? nativeUserIdClaims(tokens.id_token) : undefined;
+  // Like Pool rows, a join key needs a token-backed account claim; auth.json account_id alone is unverified.
   const userId = !idTokenMalformed && !accessUser.conflict && !idUser?.conflict
+    && claims.some(claim => claim.accountId === accountId)
     && (!idUser?.userId || idUser.userId === accessUser.userId)
     ? accessUser.userId : undefined;
   observed = { identity: { accountId, email: [...emails][0],

@@ -96,7 +96,7 @@ export function buildQoderArgs(parsed: OcxParsedRequest, provider: OcxProviderCo
 export function guardQoderScaffolding(emit: (event: AdapterEvent) => void): (event: AdapterEvent) => void {
   const textFilter = new QoderScaffoldFilter();
   const thinkingFilter = new QoderScaffoldFilter();
-  const replayFilter = new ToolEnvelopeEchoFilter();
+  let replayFilter = new ToolEnvelopeEchoFilter();
   let closed = false;
 
   const refuse = (reason: string): void => {
@@ -124,6 +124,24 @@ export function guardQoderScaffolding(emit: (event: AdapterEvent) => void): (eve
     }
     if (safe) emit({ type: "text_delta", text: safe });
     if (replayFilter.matched && refuseOnMatch) refuse("replayed tool envelope");
+  };
+
+  /*
+   * Any other event ends the text block before it. Settle text the replay filter
+   * still holds so the event cannot overtake it, and refuse before publishing the
+   * event when that text completes an envelope. Heartbeats carry no content and
+   * must not split a marker. The next text block starts at a line start, so an
+   * envelope opening it is recognized even when the previous block ended mid-line.
+   */
+  const settleText = (): boolean => {
+    const tail = replayFilter.finish();
+    if (replayFilter.matched || replayFilter.unverifiedMarker) {
+      refuse("replayed tool envelope");
+      return false;
+    }
+    if (tail) emit({ type: "text_delta", text: tail });
+    replayFilter = new ToolEnvelopeEchoFilter();
+    return true;
   };
 
   return (event: AdapterEvent): void => {
@@ -160,6 +178,7 @@ export function guardQoderScaffolding(emit: (event: AdapterEvent) => void): (eve
       emit(event);
       return;
     }
+    if (event.type !== "heartbeat" && !settleText()) return;
     emit(event);
   };
 }

@@ -325,4 +325,41 @@ describe("Qoder replay envelope refusal (#7517)", () => {
     expect(textOf(events)).not.toContain("private-fixture");
     expect(events.at(-1)).toMatchObject({ type: "error", status: 502, retryable: false });
   });
+
+  test("a tool event settles held text first, so it neither overtakes prose nor leaks after an envelope", () => {
+    const tool = (guard: (event: AdapterEvent) => void) => {
+      guard({ type: "tool_call_start", id: "call_1", name: "exec" });
+      guard({ type: "tool_call_delta", arguments: "{}" });
+      guard({ type: "tool_call_end" });
+      guard({ type: "done", stopReason: "stop" });
+    };
+    const prose = collect();
+    const guarded = guardQoderScaffolding(prose.emit);
+    guarded({ type: "text_delta", text: "Checking:\n[" });
+    tool(guarded);
+    expect(prose.events.map(event => event.type)).toEqual(["text_delta", "text_delta", "tool_call_start", "tool_call_delta", "tool_call_end", "done"]);
+    expect(textOf(prose.events)).toBe("Checking:\n[");
+    for (const echo of ["[Tool Result]", "Safe.\n[Tool Error]", "```text\n[Tool call: probe]\nprivate-fixture"]) {
+      const refused = collect();
+      const guard = guardQoderScaffolding(refused.emit);
+      guard({ type: "text_delta", text: echo });
+      tool(guard);
+      expect(refused.events.some(event => event.type.startsWith("tool_call"))).toBe(false);
+      expect(JSON.stringify(refused.events)).not.toContain("private-fixture");
+      expect(refused.events.at(-1)).toMatchObject({ type: "error", code: QODER_SCAFFOLD_ERROR_CODE, status: 502, retryable: false });
+    }
+  });
+
+  test("text after a tool event starts a new line for envelope detection", () => {
+    const { events, emit } = collect();
+    const guard = guardQoderScaffolding(emit);
+    guard({ type: "text_delta", text: "Working" });
+    guard({ type: "tool_call_start", id: "call_1", name: "exec" });
+    guard({ type: "tool_call_end" });
+    guard({ type: "text_delta", text: "[Tool Result]\nprivate-fixture" });
+    guard({ type: "done", stopReason: "stop" });
+    expect(textOf(events)).toBe("Working");
+    expect(JSON.stringify(events)).not.toContain("private-fixture");
+    expect(events.at(-1)).toMatchObject({ type: "error", code: QODER_SCAFFOLD_ERROR_CODE, status: 502 });
+  });
 });

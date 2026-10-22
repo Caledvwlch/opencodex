@@ -147,4 +147,28 @@ describe("Codex account slot identity metadata", () => {
     // The unverified account ID still guards against storing the native login as a Pool duplicate.
     expect(codexAccountUnusableReason(config, POOL_ID)).toBe("duplicate_main");
   });
+
+  test("account and user claims split across native tokens yield no join key", async () => {
+    writeAdminToken(ADMIN_TOKEN);
+    // A stale or mixed token set: the ID token proves only the account, the access token only the user.
+    writeNative({ id_token: jwt({ account: ACCOUNT, label: "native-id-account-only" }),
+      access_token: jwt({ user: USER, label: "native-access-user-only" }), account_id: ACCOUNT });
+    savePool(jwt({ account: ACCOUNT, user: USER, label: "pool-claimed" }));
+
+    const { accounts } = await listOverHttp();
+    expect(accounts.find(row => row.id === "__main__")?.upstreamAccountKey).toBeUndefined();
+    expect(accounts.find(row => row.id === POOL_ID)?.upstreamAccountKey).toMatch(KEY_FORMAT);
+  });
+
+  test("one native token claiming both account and user still joins the Pool row", async () => {
+    writeAdminToken(ADMIN_TOKEN);
+    writeNative({ id_token: jwt({ account: ACCOUNT, user: USER, label: "native-id-bound" }),
+      access_token: jwt({ user: USER, label: "native-access-user" }), account_id: ACCOUNT });
+    savePool(jwt({ account: ACCOUNT, user: USER, label: "pool-claimed" }));
+
+    const { accounts } = await listOverHttp();
+    const mainKey = accounts.find(row => row.id === "__main__")?.upstreamAccountKey;
+    expect(mainKey).toMatch(KEY_FORMAT);
+    expect(accounts.find(row => row.id === POOL_ID)?.upstreamAccountKey).toBe(mainKey);
+  });
 });

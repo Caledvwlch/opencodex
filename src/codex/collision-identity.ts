@@ -63,13 +63,13 @@ export function observeMainCodexCollisionIdentity(tokens?: CodexTokens): void {
   const idPayload: unknown = tokens.id_token === undefined ? undefined : decodeJwtPayload(tokens.id_token);
   const idTokenMalformed = tokens.id_token !== undefined
     && (idPayload === null || typeof idPayload !== "object" || Array.isArray(idPayload));
-  const accessUser = nativeUserIdClaims(tokens.access_token);
-  const idUser = tokens.id_token ? nativeUserIdClaims(tokens.id_token) : undefined;
-  // Like Pool rows, a join key needs a token-backed account claim; auth.json account_id alone is unverified.
-  const userId = !idTokenMalformed && !accessUser.conflict && !idUser?.conflict
-    && claims.some(claim => claim.accountId === accountId)
-    && (!idUser?.userId || idUser.userId === accessUser.userId)
-    ? accessUser.userId : undefined;
+  const users = [tokens.id_token ? nativeUserIdClaims(tokens.id_token) : undefined, nativeUserIdClaims(tokens.access_token)];
+  const userIds = new Set(users.flatMap(user => user?.userId ? [user.userId] : []));
+  // A join key needs one token claiming both the account and the user, as a Pool access token does;
+  // auth.json account_id alone, or claims split across a mixed token set, prove no pairing.
+  const bound = claims.some((claim, index) => claim.accountId === accountId && users[index]?.userId);
+  const userId = !idTokenMalformed && !users.some(user => user?.conflict) && bound && userIds.size === 1
+    ? [...userIds][0] : undefined;
   observed = { identity: { accountId, email: [...emails][0],
     ...(userId ? { userId } : {}),
     plan: extractChatgptPlanType(tokens.id_token, tokens.access_token) },

@@ -162,7 +162,7 @@ import { removeOwnedConfigAfterDesktopCleanup } from "./uninstall-client-state";
 import { withProcessRuntimeProvenance } from "../lib/bun-runtime";
 import { startArgv } from "../lib/self-launch-argv";
 import { initializeNodeLauncherContext } from "./launcher-context";
-import { restoreSharedClientStateAfterStop } from "./stop-restore";
+import { connectedClientStopSkipLine, restoreSharedClientStateAfterStop } from "./stop-restore";
 import { startClientRuntimeUnderOwnershipLease } from "./client-start-fence";
 import { recoverStartStateUnderOwnershipLease } from "./start-owner-fence";
 import { handledSignalExitCode } from "../lib/handled-signal-exit";
@@ -1088,6 +1088,8 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
   // the record; a record left behind by a hard-killed sibling still says so.
   const siblingOfPort = readRuntimePort()?.siblingOfPort;
   const stoppingSibling = siblingOfPort !== undefined;
+  // A connected client's routing, catalog and Grok config belong to its connection (#7563).
+  const connectedClientSkip = stoppingSibling ? null : connectedClientStopSkipLine(readClientConnectionState());
   // Structured twin of the human lines below, for `ocx stop --json`: one document the
   // desktop shell can read across the process boundary (D4). Every field is assigned
   // where the corresponding boolean already flips — the summarizer never re-decides.
@@ -1126,6 +1128,7 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
   let teardownNonce: string | undefined;
   const claimTeardown = (endpoint: { hostname: string; port: number }, endpointSource: "exact" | "guessed") => {
     if (teardownNonce || stoppingSibling) return;
+    if (connectedClientSkip) return;
     try {
       teardownNonce = claimPendingTeardown(endpoint, endpointSource).nonce;
     } catch (err) {
@@ -1432,7 +1435,8 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
   }
   if (nativeRestoreHandledByProxy && !stoppingSibling) record.sharedTeardown = "performed-by-proxy";
   if (stoppingSibling) console.log(`↩️  Client routing stays on the proxy at port ${siblingOfPort}; this sibling had no shared teardown to run.`);
-  const restoreBlocked = ownershipBlocked || inheritedBlocks || nativeRestoreHandledByProxy || stoppingSibling;
+  if (connectedClientSkip) console.log(connectedClientSkip);
+  const restoreBlocked = ownershipBlocked || inheritedBlocks || nativeRestoreHandledByProxy || stoppingSibling || connectedClientSkip !== null;
   if (!restoreBlocked) {
     if (recoveredNonces.length > 0) {
       // A previous deferred stop died before restoring, and the probe says its endpoint is
@@ -1755,6 +1759,10 @@ async function handleStatus() {
   for (const line of unusedProxyWarningLines({
     proxyUp: Boolean(status.json.proxy.pid || status.json.proxy.health.ok),
     routingKind: status.json.startup.routingKind,
+    ...(status.json.remoteHub.connected ? { connectedClient: {
+      transport: status.json.connection.transport === "link" ? "link" as const : "hub" as const,
+      serviceInstalled: status.json.startup.serviceInstalled && !status.json.startup.serviceConflict,
+    } } : {}),
   })) {
     console.log(`   ${line}`);
   }
@@ -1784,6 +1792,7 @@ async function handleStatus() {
     for (const line of deadProxyRoutingAdviceLines({
       proxyUp: false,
       routingKind: status.json.startup.routingKind,
+      connectedClient: status.json.remoteHub.connected,
     })) {
       console.log(`     ${line}`);
     }

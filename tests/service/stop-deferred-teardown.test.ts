@@ -50,7 +50,9 @@ function restoreResult(success: boolean): CodexNativeRestoreResult {
   } as unknown as CodexNativeRestoreResult;
 }
 
-async function runParentStop(options: { receipt: boolean; response: unknown; restore: CodexNativeRestoreResult; status?: number }) {
+async function runParentStop(options: {
+  receipt: boolean; response: unknown; restore: CodexNativeRestoreResult; status?: number; clientTransport?: "hub" | "link";
+}) {
   const child = spawnSync(process.execPath, [fixturePath("parent-stop-runner.ts")], {
     cwd: repoPath(),
     env: { ...process.env, OPENCODEX_HOME: home },
@@ -69,10 +71,24 @@ async function runParentStop(options: { receipt: boolean; response: unknown; res
   };
   expect(report.unexpectedIo, child.stderr).toEqual([]);
   expect(report.urls, child.stderr).toHaveLength(1);
-  return { ...report, exitCode: child.status, stderr: child.stderr };
+  return { ...report, exitCode: child.status, stderr: child.stderr, stdout: child.stdout };
 }
 
 describe("parent CLI shared teardown completion", () => {
+  // #7563: nothing on a connected client writes its Codex routing, catalog or Grok block back
+  // on start, so a stop that tore them down left them torn down.
+  for (const clientTransport of ["link", "hub"] as const) {
+    test(`a ${clientTransport} client stop leaves the connection's integrations and claims no receipt`, async () => {
+      const outcome = await runParentStop({ receipt: true, clientTransport,
+        response: { error: "not found" }, status: 404, restore: restoreResult(true) });
+      expect(outcome.urls).toEqual(["http://127.0.0.1:10100/api/stop"]);
+      expect(outcome.nonce).toBeUndefined();
+      expect(outcome.calls).toMatchObject({ native: 0, grok: 0, cleared: 0 });
+      expect(outcome.stdout).toContain("this " + (clientTransport === "link" ? "Remote Link Child" : "hub client") + "'s connection owns them");
+      expect(outcome.exitCode, outcome.stderr).toBe(0);
+    });
+  }
+
   test("receipt failure and unconfirmed child teardown cause real parent restoration without a kill", async () => {
     const outcome = await runParentStop({ receipt: false,
       response: { success: false, sharedTeardown: "performed" }, restore: restoreResult(true) });

@@ -1,6 +1,24 @@
 import { restoreNativeCodexAsync } from "../codex/inject";
 import type { RetainedCodexProviderTable } from "../codex/inject/restore";
 import { stripGrokConfig } from "../grok/inject";
+import type { ClientConnectionState } from "../client/state";
+
+/**
+ * The line `ocx stop` prints in place of the shared teardown on a connected client, or null
+ * when this home is not one (#7563).
+ *
+ * A hub client or Remote Link Child gets its Codex routing and catalog from `ocx connect` /
+ * `ocx sync`, and its client runtime never writes them on start. The standalone teardown
+ * restored native Codex, rewrote the catalog and stripped the Grok block, and nothing on the
+ * client put any of it back: `ocx start` brought the runtime up with Codex still native and
+ * Grok unconfigured. Leaving them in place makes stop/start a round trip; `ocx disconnect`
+ * remains the teardown that owns them, with its own ownership checks.
+ */
+export function connectedClientStopSkipLine(state: ClientConnectionState): string | null {
+  if (state.kind !== "connected") return null;
+  const role = state.value.transport === "link" ? "Remote Link Child" : "hub client";
+  return `↩️  Codex routing, its catalog and the Grok config stay as they are: this ${role}'s connection owns them, and 'ocx start' serves them again. To hand Codex back to its own account, run 'ocx disconnect'.`;
+}
 
 /**
  * Restore shared client state after a stop.

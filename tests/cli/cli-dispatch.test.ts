@@ -622,7 +622,8 @@ describe("a sibling start leaves shared client routing to the live owner", () =>
     // Read before the first stop can remove the record.
     expect(readAt).toBeLessThan(stop.indexOf("stopServiceIfInstalledDetailed()"));
     expect(stop).toContain("if (teardownNonce || stoppingSibling) return;");
-    expect(stop).toContain("const restoreBlocked = ownershipBlocked || inheritedBlocks || nativeRestoreHandledByProxy || stoppingSibling;");
+    // #7563 adds a connected client to the same gate; the sibling term is unchanged.
+    expect(stop).toContain("const restoreBlocked = ownershipBlocked || inheritedBlocks || nativeRestoreHandledByProxy || stoppingSibling || connectedClientSkip !== null;");
     expect(stop).toContain('if (nativeRestoreHandledByProxy && !stoppingSibling) record.sharedTeardown = "performed-by-proxy";');
     // The system env was never the sibling's to set, so its stop does not roll it back either.
     expect(stop).toContain("if (!stoppingSibling) { try { revertSystemEnv(); } catch { /* best-effort */ } }");

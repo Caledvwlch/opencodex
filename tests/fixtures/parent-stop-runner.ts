@@ -10,6 +10,8 @@ const options = JSON.parse(readFileSync(0, "utf8")) as {
   response: unknown;
   restore: CodexNativeRestoreResult;
   status?: number;
+  /** #7563: run the stop as a connected client of this transport. */
+  clientTransport?: "hub" | "link";
 };
 const home = process.env.OPENCODEX_HOME!;
 const endpoint = { hostname: "127.0.0.1", port: 10100 };
@@ -81,6 +83,11 @@ mock.module("../../src/grok/inject", () => ({
   stripGrokConfig: () => { calls.grok += 1; return { ok: true, changed: true, message: "Grok restored" }; },
 }));
 const systemEnv = await import("../../src/server/system-env");
+if (options.clientTransport) {
+  const clientState = await import("../../src/client/state");
+  const connected = { kind: "connected", value: { transport: options.clientTransport } };
+  mock.module("../../src/client/state", () => ({ ...clientState, readClientConnectionState: () => connected }));
+}
 mock.module("../../src/server/system-env", () => ({ ...systemEnv, revertSystemEnv() {} }));
 const portReclaim = await import("../../src/server/port-reclaim");
 mock.module("../../src/server/port-reclaim", () => ({ ...portReclaim, reclaimListenPort: async () => {} }));

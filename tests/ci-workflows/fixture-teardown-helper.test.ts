@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { retainNativeMainOwner } from "../../src/codex/native-main-owner";
 import { flushConfigDirHardening } from "../../src/config/paths";
 import {
   defaultFixtureTeardownDeps,
@@ -6,6 +10,7 @@ import {
   type FixtureTeardownDeps,
   type FixtureTeardownPlan,
 } from "../helpers/fixture-teardown";
+import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 function harness(overrides: Partial<FixtureTeardownDeps> = {}) {
   const calls: string[] = [];
@@ -14,6 +19,7 @@ function harness(overrides: Partial<FixtureTeardownDeps> = {}) {
     settleConfigFlights: async root => { calls.push(`flight:${root}`); },
     closeHistory: () => { calls.push("history"); },
     drainAcl: async root => { calls.push(`acl:${root}`); },
+    openLocks: () => [],
     remove: root => { calls.push(`remove:${root}`); },
     ...overrides,
   };
@@ -126,5 +132,35 @@ describe("fixture removal ownership", () => {
     const h = harness({ settleProducers: async () => { throw first; } });
     h.plan.restoreEnvironment = () => { throw last; };
     await expect(drainAndRemoveFixtureRoots(h.plan, h.deps)).rejects.toBe(first);
+  });
+
+  test("an owner still open under a root keeps only that root and names it", async () => {
+    const h = harness({ openLocks: root => (root === "A" ? ["A/codex"] : []) });
+    await expect(drainAndRemoveFixtureRoots(h.plan, h.deps)).rejects.toThrow("native-main owner still open for A/codex");
+    expect(h.calls).not.toContain("remove:A");
+    expect(h.calls).toContain("remove:B");
+    expect(h.calls.filter(call => call === "restore")).toHaveLength(1);
+  });
+
+  test("the default lock probe sees a held owner below the root until its release closes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ocx-teardown-lock-"));
+    const codexHome = join(root, "codex");
+    const sibling = `${root}-sibling`;
+    mkdirSync(codexHome);
+    const owner = retainNativeMainOwner(
+      { codexHome, homeId: `teardown-lock-${process.pid}` } as never,
+      { hardenPath: async () => {} },
+    );
+    try {
+      await new Promise<void>(held => owner.subscribe(snapshot => { if (snapshot.status === "held") held(); }));
+      expect(defaultFixtureTeardownDeps.openLocks(root)).toEqual([codexHome]);
+      expect(defaultFixtureTeardownDeps.openLocks(codexHome)).toEqual([codexHome]);
+      expect(defaultFixtureTeardownDeps.openLocks(sibling)).toEqual([]);
+      await owner.release();
+      expect(defaultFixtureTeardownDeps.openLocks(root)).toEqual([]);
+    } finally {
+      await owner.release();
+      removeTreeWithRetry(root);
+    }
   });
 });

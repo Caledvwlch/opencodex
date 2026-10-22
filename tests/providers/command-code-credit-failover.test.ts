@@ -79,6 +79,41 @@ describe("Command Code insufficient-credit refusal", () => {
       expect(calls).toBe(1);
       expect(response.status).toBe(fixture.status);
       expect(response.headers.get("x-opencodex-refusal")).toBeNull();
+      expect(response.headers.get("x-opencodex-upstream-status")).toBeNull();
+    }
+  });
+
+  test("keeps upstream 429 and 402 refusals out of the credit classification", async () => {
+    // A real 429 already reaches the OAuth rotation and must keep its own Retry-After; a 402
+    // is a different failure class downstream. Neither may be relabelled as the credit
+    // refusal, even when its body carries the same wording.
+    const rateLimited = { error: { type: "rate_limit_error", message: "Too many requests" } };
+    const paymentRequired = { error: { code: "PAYMENT_REQUIRED", message: "Payment required" } };
+    const fixtures = [
+      { status: 429, body: rateLimited, headers: { "retry-after": "30" } },
+      { status: 429, body: CREDITS_EXHAUSTED, headers: { "retry-after": "7" } },
+      { status: 402, body: CREDITS_EXHAUSTED, headers: {} },
+      { status: 402, body: paymentRequired, headers: {} },
+    ];
+
+    for (const fixture of fixtures) {
+      let calls = 0;
+      const fetchMock = (async () => {
+        calls += 1;
+        return new Response(JSON.stringify(fixture.body), {
+          status: fixture.status,
+          headers: { "content-type": "application/json", ...fixture.headers },
+        });
+      }) as typeof globalThis.fetch;
+      const adapter = adapterWith(fetchMock);
+      const response = await adapter.fetchResponse(await adapter.buildRequest(parsed()));
+
+      expect(calls).toBe(1);
+      expect(response.status).toBe(fixture.status);
+      expect(response.headers.get("x-opencodex-refusal")).toBeNull();
+      expect(response.headers.get("x-opencodex-upstream-status")).toBeNull();
+      expect(response.headers.get("retry-after")).toBe(fixture.headers["retry-after" as keyof typeof fixture.headers] ?? null);
+      expect(await response.json()).toEqual(fixture.body);
     }
   });
 

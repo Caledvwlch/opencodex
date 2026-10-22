@@ -163,4 +163,41 @@ describe("fixture removal ownership", () => {
       removeTreeWithRetry(root);
     }
   });
+
+  test("an owner paused mid-acquisition keeps its root until preparation and release finish", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ocx-teardown-acquire-"));
+    const codexHome = join(root, "codex");
+    mkdirSync(codexHome);
+    let entered!: () => void, resume!: () => void;
+    const hardening = new Promise<void>(done => { entered = done; });
+    const resumed = new Promise<void>(done => { resume = done; });
+    const owner = retainNativeMainOwner(
+      { codexHome, homeId: `teardown-acquire-${process.pid}` } as never,
+      { hardenPath: async () => { entered(); await resumed; } },
+    );
+    const removed: string[] = [];
+    const plan = (): FixtureTeardownPlan => ({ roots: [{ path: root, remove: path => { removed.push(path); removeTreeWithRetry(path); } }], restoreEnvironment: () => {} });
+    try {
+      // The descriptor and SQLite handle exist only in locals while the hardener runs.
+      await hardening;
+      expect(owner.snapshot().status).toBe("acquiring");
+      await expect(drainAndRemoveFixtureRoots(plan())).rejects.toThrow(`native-main owner still open for ${codexHome}`);
+      expect(removed).toEqual([]);
+
+      const released = owner.release();
+      // Still closing: the release waits for the paused acquisition.
+      await expect(drainAndRemoveFixtureRoots(plan())).rejects.toThrow("native-main owner still open");
+      expect(removed).toEqual([]);
+
+      resume();
+      await released;
+      expect(defaultFixtureTeardownDeps.openLocks(root)).toEqual([]);
+      await drainAndRemoveFixtureRoots(plan());
+      expect(removed).toEqual([root]);
+    } finally {
+      resume();
+      await owner.release();
+      if (removed.length === 0) removeTreeWithRetry(root);
+    }
+  });
 });
